@@ -250,8 +250,7 @@ static inline void ethr_ii_to_subframe_msdu(struct sk_buff *skb)
 #define SLSI_MAX_CHANNEL_LIST 20
 #define SLSI_MAX_RX_BA_SESSIONS (8)
 #define SLSI_STA_ACTION_FRAME_BITMAP (SLSI_ACTION_FRAME_PUBLIC | SLSI_ACTION_FRAME_WMM | SLSI_ACTION_FRAME_WNM |\
-				      SLSI_ACTION_FRAME_QOS | SLSI_ACTION_FRAME_PROTECTED_DUAL |\
-				      SLSI_ACTION_FRAME_RADIO_MEASUREMENT)
+				      SLSI_ACTION_FRAME_QOS | SLSI_ACTION_FRAME_PROTECTED_DUAL)
 #define SLSI_STA_ACTION_FRAME_SUSPEND_BITMAP (SLSI_ACTION_FRAME_PUBLIC | SLSI_ACTION_FRAME_WMM | SLSI_ACTION_FRAME_WNM |\
 				      SLSI_ACTION_FRAME_QOS | SLSI_ACTION_FRAME_PROTECTED_DUAL)
 
@@ -757,6 +756,7 @@ struct slsi_vif_sta {
 	u32                            action_frame_suspend_bmap;
 	bool                           wpa3_sae_reconnection;
 #endif
+	u16                            owe_group_during_connection;
 };
 
 struct slsi_vif_unsync {

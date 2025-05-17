@@ -65,3 +65,12 @@ config SEC_SND_ADAPTATION
 config SND_SOC_ABOX_NOCP
 	tristate "vss disable"
 	depends on SND_SOC_SAMSUNG_ABOX
+
+config SND_SOC_SAMSUNG_ABOX_CHANGE_RMEM_SIZE
+	tristate "Release some reserved memory"
+	depends on SND_SOC_SAMSUNG_ABOX
+	depends on SND_SOC_SAMSUNG_AUDIO
+	default n
+	help
+	  change reserved memory size for abox_dbg or abox_slog
+	  check debug_level or force_upload before alloc reserved memory and change the size.

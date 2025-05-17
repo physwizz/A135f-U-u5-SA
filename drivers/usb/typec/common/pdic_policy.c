@@ -681,8 +681,10 @@ static void vbus_turn_on_ctrl(struct pdic_policy *pp_data, bool enable)
 		goto skip_notify;
 	}	
 
+#ifdef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
 	must_block_host = is_blocked(o_notify, NOTIFY_BLOCK_TYPE_HOST);
 	unsupport_host  = !is_usb_host(o_notify);
+#endif
 
 	pr_info("%s : enable=%d, must_block_host=%d unsupport_host=%d\n",
 		__func__, enable, must_block_host, unsupport_host);

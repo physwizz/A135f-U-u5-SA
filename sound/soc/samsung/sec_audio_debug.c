@@ -45,7 +45,10 @@
 
 #define SEC_AUDIO_DEBUG_STRING_WQ_NAME "sec_audio_dbg_str_wq"
 
+static size_t rmem_size_min[TYPE_SIZE_MAX] = {0xab0cab0c, 0xab0cab0c};
+//static size_t rmem_size_min[TYPE_SIZE_MAX] = {0xab0cab0c, 0x0};
 struct device *debug_dev;
+int audio_debug_level;
 
 struct sec_audio_debug_data {
 	char *dbg_str_buf;
@@ -68,10 +71,12 @@ static struct sec_audio_log_data *p_debug_pmlog_data;
 static unsigned int debug_buff_switch;
 
 int aboxlog_file_opened;
+static DEFINE_MUTEX(aboxlog_file_lock);
 int half2_buff_use;
 #define ABOXLOG_BUFF_SIZE SZ_2M
 
 ssize_t aboxlog_file_index;
+static DEFINE_MUTEX(aboxlog_file_index_lock);
 struct abox_log_kernel_buffer {
 	char *buffer;
 	unsigned int index;
@@ -322,12 +327,15 @@ static int set_debug_buffer_switch(struct snd_kcontrol *kcontrol,
 	val = (unsigned int)ucontrol->value.integer.value[0];
 
 	if (val) {
-		alloc_sec_audio_log(p_debug_log_data, SZ_1M);
+		ret = alloc_sec_audio_log(p_debug_log_data, SZ_1M);
 		debug_buff_switch = SZ_1M;
 	} else {
-		alloc_sec_audio_log(p_debug_log_data, 0);
+		ret = alloc_sec_audio_log(p_debug_log_data, 0);
 		debug_buff_switch = 0;
 	}
+	if (ret < 0)
+		pr_err("%s: allocation failed at sec_audio_log\n",
+			__func__);
 
 	return ret;
 }
@@ -599,17 +607,22 @@ static int aboxhalflog_file_open(struct inode *inode, struct  file *file)
 {
 	pr_debug("%s\n", __func__);
 
+	mutex_lock(&aboxlog_file_lock);
 	if (aboxlog_file_opened) {
 		pr_err("%s: already opened\n", __func__);
+		mutex_unlock(&aboxlog_file_lock);
 		return -EBUSY;
 	}
 
 	aboxlog_file_opened = 1;
+	mutex_unlock(&aboxlog_file_lock);
 
+	mutex_lock(&aboxlog_file_index_lock);
 	if (read_half_buff_id == 0)
 		aboxlog_file_index = 0;
 	else
 		aboxlog_file_index = ABOXLOG_BUFF_SIZE / 2;
+	mutex_unlock(&aboxlog_file_index_lock);
 
 	return 0;
 }
@@ -618,7 +631,9 @@ static int aboxhalflog_file_release(struct inode *inode, struct file *file)
 {
 	pr_debug("%s\n", __func__);
 
+	mutex_lock(&aboxlog_file_lock);
 	aboxlog_file_opened = 0;
+	mutex_unlock(&aboxlog_file_lock);
 
 	return 0;
 }
@@ -636,8 +651,10 @@ static ssize_t aboxhalflog_file_read(struct file *file, char __user *user_buf,
 	else
 		end = ABOXLOG_BUFF_SIZE - 1;
 
+	mutex_lock(&aboxlog_file_index_lock);
 	if (aboxlog_file_index > end) {
 		pr_err("%s: read done\n", __func__);
+		mutex_unlock(&aboxlog_file_index_lock);
 		return copy_len;
 	}
 
@@ -646,9 +663,11 @@ static ssize_t aboxhalflog_file_read(struct file *file, char __user *user_buf,
 	ret = copy_to_user(user_buf, p_debug_aboxlog_data->buffer + aboxlog_file_index, copy_len);
 	if (ret) {
 		pr_err("%s: copy fail %d\n", __func__, (int) ret);
+		mutex_unlock(&aboxlog_file_index_lock);
 		return -EFAULT;
 	}
 	aboxlog_file_index += copy_len;
+	mutex_unlock(&aboxlog_file_index_lock);
 
 	return copy_len;
 }
@@ -676,6 +695,51 @@ static ssize_t aboxhalflog_file_write(struct file *file, const char __user *user
 	return size;
 }
 
+int check_upload_mode_disabled(void)
+{
+	int val = 0;
+#if IS_ENABLED(CONFIG_SEC_DEBUG)
+	val = secdbg_mode_enter_upload();
+#endif
+
+	if (val == 0x5)
+		return 0;
+	else
+		return 1;
+}
+EXPORT_SYMBOL_GPL(check_upload_mode_disabled);
+
+static int __init check_audio_debug_level(char *arg)
+{
+	audio_debug_level = 0;
+	get_option(&arg, &audio_debug_level);
+
+	return 0;
+}
+
+early_param("androidboot.debug_level", check_audio_debug_level);
+
+int check_debug_level_low(void)
+{
+	int debug_level_low = 0;
+
+	if (audio_debug_level == 0x4f4c) {
+		debug_level_low = 1;
+	} else {
+		debug_level_low = 0;
+	}
+	
+	pr_info("%s: 0x%x\n", __func__, audio_debug_level);
+	return debug_level_low;
+}
+EXPORT_SYMBOL_GPL(check_debug_level_low);
+
+size_t get_rmem_size_min(enum rmem_size_type id)
+{
+	return rmem_size_min[id];
+}
+EXPORT_SYMBOL_GPL(get_rmem_size_min);
+
 static const struct file_operations aboxhalflog_fops = {
 	.open = aboxhalflog_file_open,
 	.release = aboxhalflog_file_release,
@@ -687,6 +751,23 @@ static const struct file_operations aboxhalflog_fops = {
 
 static int sec_audio_debug_probe(struct platform_device *pdev)
 {
+	int ret = 0;
+	struct device_node *np = pdev->dev.of_node;
+	struct device *dev = &pdev->dev;
+	unsigned int val = 0;
+	printk(KERN_INFO "sec_audio_debug_probe\n");
+	ret = of_property_read_u32(np, "abox_dbg_size_min", &val);
+	if (ret < 0)
+		dev_err(dev, "%s: failed to get abox_dbg_size_min %d\n", __func__, ret);
+	else
+		rmem_size_min[TYPE_ABOX_DBG_SIZE] = (size_t) val;
+
+	ret = of_property_read_u32(np, "abox_slog_size_min", &val);
+	if (ret < 0)
+		dev_err(dev, "%s: failed to get abox_slog_size_min %d\n", __func__, ret);
+	else
+		rmem_size_min[TYPE_ABOX_SLOG_SIZE] = (size_t) val;
+
 	debug_dev = &pdev->dev;
 
 	return 0;

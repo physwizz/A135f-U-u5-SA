@@ -8064,6 +8064,8 @@ u8 *slsi_get_scan_extra_ies(struct slsi_dev *sdev, const u8 *ies, int total_len,
 	while (i < default_ie_len - 2) {
 		id = *(default_ies + i);
 		ie_len = *(default_ies + i + 1);
+		if (cur_len + ie_len + 2 > default_ie_len)
+			break;
 		if (!cfg80211_find_ie(id, ies, total_len)) {
 			memcpy(new_ies + cur_len, default_ies + i, ie_len + 2);
 			cur_len += (ie_len + 2);

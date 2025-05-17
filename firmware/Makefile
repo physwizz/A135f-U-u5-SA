@@ -13,7 +13,7 @@ fwabs := $(addprefix $(srctree)/,$(filter-out /%,$(fwdir)))$(filter /%,$(fwdir))
 fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS_A552) += tsp_sec/hero2la.bin
 fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS) += tsp_sec/y761_dream1.fw
 
-fw-external-$(CONFIG_TOUCHSCREEN_FTS_FT820X) += tsp_focaltech/ft8203_gtmotorwifi.bin
+fw-external-$(CONFIG_TOUCHSCREEN_FTS_FT820X) += tsp_focaltech/ft8203_gtmotorwifi.bin tsp_focaltech/ft8203_gtmotory24wifi.bin
 fw-external-$(CONFIG_TOUCHSCREEN_FTS_FT8720) += tsp_focaltech/ft8720_m13.bin tsp_focaltech/ft8720_m13_ramtest.bin
 fw-external-$(CONFIG_TOUCHSCREEN_HIMAX_IC_HX83112) += tsp_himax/hx83112f_a13.bin
 fw-external-$(CONFIG_TOUCHSCREEN_SYNAPTICS_TCM) += tsp_synaptics/td4150_a21s.bin

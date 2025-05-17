@@ -163,6 +163,7 @@ struct contexthub_baaw_info {
 	unsigned int baaw_p_apm_chub_remap;
 };
 
+#define CONTEXTHUB_IPC_INFO_LEGACY
 #define CHUB_IRQ_PIN_MAX (5)
 struct contexthub_ipc_info {
 	u32 cur_err;

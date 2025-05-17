@@ -53,6 +53,7 @@
 #include "abox_cmpnt.h"
 #include "abox_tplg.h"
 #include "abox_core.h"
+#include "abox_oem.h"
 #include "abox_ipc.h"
 #include "abox.h"
 
@@ -2597,17 +2598,6 @@ static int abox_download_firmware(struct device *dev)
 	if (ret)
 		return ret;
 
-	if ((data->bootargs_offset != 0) && (data->bootargs != NULL)) {
-		dev_info(dev, "bootargs[%p][0x%x][%s]\n",
-				data->sram_base,
-				data->bootargs_offset, data->bootargs);
-
-		memcpy_toio(data->sram_base + data->bootargs_offset,
-				data->bootargs, SZ_512);
-	} else {
-		dev_info(dev, "bootargs is NULL\n");
-	}
-
 	/* Requesting missing extra firmware is waste of time. */
 	if (!requested) {
 		abox_request_extra_firmware(data);
@@ -2617,6 +2607,27 @@ static int abox_download_firmware(struct device *dev)
 
 	return 0;
 }
+
+static void abox_set_calliope_bootargs(struct abox_data *data)
+{
+	char *bootargs = NULL;
+	if (!data->bootargs_offset || !data->bootargs)
+		return;
+
+	bootargs = abox_oem_update_bootargs(data);
+	if (!bootargs) {
+		dev_info(data->dev, "bootargs: %#x, %s\n",
+				data->bootargs_offset, data->bootargs);
+		memcpy_toio(data->sram_base + data->bootargs_offset,
+				data->bootargs, strnlen(data->bootargs, SZ_512) + 1);
+	} else {
+		dev_info(data->dev, "bootargs: %#x, %s\n",
+				data->bootargs_offset, bootargs);
+		memcpy_toio(data->sram_base + data->bootargs_offset, bootargs,
+				strnlen(bootargs, SZ_512) + 1);
+	}
+}
+
 
 static bool abox_is_timer_set(struct abox_data *data)
 {
@@ -2730,6 +2741,7 @@ static int abox_enable(struct device *dev)
 		}
 	}
 
+	abox_set_calliope_bootargs(data);
 	abox_request_dram_on(dev, DEFAULT_SYS_POWER_ID, true);
 	data->calliope_state = CALLIOPE_ENABLING;
 	if (has_reset) {

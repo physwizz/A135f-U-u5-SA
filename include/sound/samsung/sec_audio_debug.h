@@ -21,6 +21,12 @@
 #ifndef _SEC_AUDIO_DEBUG_H
 #define _SEC_AUDIO_DEBUG_H
 
+enum rmem_size_type {
+	TYPE_ABOX_DBG_SIZE,
+	TYPE_ABOX_SLOG_SIZE,
+	TYPE_SIZE_MAX,
+};
+
 struct sec_audio_log_data {
 	ssize_t buff_idx;
 	int full;
@@ -62,6 +68,10 @@ int alloc_sec_audio_log(struct sec_audio_log_data *p_dbg_log_data, size_t buffer
 void sec_audio_log(int level, struct device *dev, const char *fmt, ...);
 void sec_audio_bootlog(int level, struct device *dev, const char *fmt, ...);
 void sec_audio_pmlog(int level, struct device *dev, const char *fmt, ...);
+
+int check_upload_mode_disabled(void);
+int check_debug_level_low(void);
+size_t get_rmem_size_min(enum rmem_size_type id);
 
 #ifdef CHANGE_DEV_PRINT
 #ifdef dev_err
@@ -124,6 +134,21 @@ inline void sec_audio_bootlog(int level, struct device *dev, const char *fmt, ..
 
 inline void sec_audio_pmlog(int level, struct device *dev, const char *fmt, ...)
 {
+}
+
+inline int check_upload_mode_disabled(void)
+{
+	return -EACCES;
+}
+
+inline int check_debug_level_low(void);
+{
+	return -EACCES;
+}
+
+inline size_t get_rmem_size_min(enum rmem_size_type id)
+{
+	return -EACCES;
 }
 
 #endif /* CONFIG_SND_SOC_SAMSUNG_AUDIO */

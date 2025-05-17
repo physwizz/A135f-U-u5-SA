@@ -30,6 +30,7 @@
 #include "abox_proc.h"
 #include "abox_gic.h"
 #include "abox_core.h"
+#include "abox_oem.h"
 #include "abox_dbg.h"
 
 #define ABOX_DBG_DUMP_MAGIC_SRAM	0x3935303030504D44ull /* DMP00059 */
@@ -105,6 +106,41 @@ struct abox_dbg_dump_info {
 static struct abox_dbg_dump (*p_abox_dbg_dump)[ABOX_DBG_DUMP_COUNT];
 static struct abox_dbg_dump_min (*p_abox_dbg_dump_min)[ABOX_DBG_DUMP_COUNT];
 static struct abox_dbg_dump_info abox_dbg_dump_info[ABOX_DBG_DUMP_COUNT];
+
+/* revisited free_reserved_area() of /mm/page_alloc.c */
+static unsigned long __free_reserved_area(phys_addr_t start, phys_addr_t end, const char *s)
+{
+	unsigned long pages = 0;
+	
+	start = PAGE_ALIGN(start);
+	end &= PAGE_MASK;
+	pages = (end - start) / PAGE_SIZE;
+	memblock_free(start, end-start);
+	__memblock_free_late(start, end-start);
+
+	if (pages && s)
+		pr_info("Freeing %s memory: %ldK\n", s, pages << (PAGE_SHIFT - 10));
+
+	return pages;
+}
+
+static void abox_dbg_resize_rmem(struct device *dev, struct reserved_mem *rmem,
+		size_t new_size, const char *tag)
+{
+	size_t old_size = rmem->size;
+
+	if (old_size < new_size) {
+		dev_warn(dev, "%s: new size %#zx is bigger than reserved size %#zx\n",
+				tag, new_size, old_size);
+		return;
+	}
+
+	rmem->size = new_size;
+	__free_reserved_area(rmem->base + new_size, rmem->base + old_size, tag);
+	dev_info(dev, "%s: %s new size %#lx\n", __func__, tag, rmem->size);
+}
+
+
 
 static struct reserved_mem *abox_dbg_slog;
 
@@ -667,6 +703,9 @@ static ssize_t calliope_dram_read(struct file *file, struct kobject *kobj,
 
 	dev_dbg(dev, "%s(%lld, %zu)\n", __func__, off, size);
 
+	/* if the area isn't existed, private(=base address) is 0 */
+	if (!battr->private)
+		return 0;
 	if (pm_runtime_get_if_in_use(dev_abox) > 0) {
 		if (off == 0)
 			abox_core_flush();
@@ -803,43 +842,48 @@ static struct notifier_block abox_dbg_power_nb = {
 	.notifier_call = abox_dbg_power_notifier,
 };
 
-int is_slog_memory_free(void)
-{
-	int ret = 0;
-#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
-#ifdef CONFIG_SEC_DEBUG
-	/* debug level low -> upload mode 0 */
-	if (secdbg_mode_enter_upload() == 0)
-		ret = 1;
-
-	pr_info("%s ret=%d\n", __func__, ret);
-#endif
-#endif
-	return ret;
-}
-
 static int samsung_abox_debug_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device *dev_abox = dev->parent;
 	struct abox_data *data = dev_get_drvdata(dev_abox);
+	ssize_t new_size;
 	int i, ret;
 
-	dev_dbg(dev, "%s\n", __func__);
+	dev_info(dev, "%s\n", __func__);
 
 	set_dbg_dram_alloc_flag(data);
+	
+	if (!abox_dbg_rmem) {
+		struct device_node *np_tmp;
 
-	if (abox_dbg_slog) {
-		if (is_slog_memory_free()) {
-			memblock_free(abox_dbg_slog->base, abox_dbg_slog->size);
-			__memblock_free_late(abox_dbg_slog->base, abox_dbg_slog->size);
-		} else {
-			abox_dbg_slog_init(data);
-		}
+		np_tmp = of_parse_phandle(dev->of_node, "memory-region", 0);
+		if (np_tmp)
+			abox_dbg_rmem = of_reserved_mem_lookup(np_tmp);
+	}
+	
+	if (abox_dbg_rmem) {
+		new_size = abox_oem_resize_reserved_memory(ABOX_OEM_RESERVED_MEMORY_DBG);
+		if (new_size >= 0)
+			abox_dbg_resize_rmem(dev, abox_dbg_rmem, new_size, "abox_dbg");
+
+		abox_dbg_rmem_init(data);
+	}
+	if (!abox_dbg_slog) {
+		struct device_node *np_tmp;
+
+		np_tmp = of_parse_phandle(dev->of_node, "memory-region", 1);
+		if (np_tmp)
+			abox_dbg_slog = of_reserved_mem_lookup(np_tmp);
 	}
 
-	if (abox_dbg_rmem)
-		abox_dbg_rmem_init(data);
+	if (abox_dbg_slog) {
+		new_size = abox_oem_resize_reserved_memory(ABOX_OEM_RESERVED_MEMORY_SLOG);
+		if (new_size >= 0)
+			abox_dbg_resize_rmem(dev, abox_dbg_slog, new_size, "abox_slog");
+
+		abox_dbg_slog_init(data);
+	}
 
 	ret = device_create_file(dev, &dev_attr_gpr);
 	if (ret < 0)
@@ -849,8 +893,14 @@ static int samsung_abox_debug_probe(struct platform_device *pdev)
 	bin_attr_calliope_sram.private = data->sram_base;
 	bin_attr_calliope_dram.private = data->dram_base;
 	bin_attr_calliope_log.private = data->dram_base + ABOX_LOG_OFFSET;
-	bin_attr_calliope_slog.size = data->slog_size - ABOX_SLOG_OFFSET;
-	bin_attr_calliope_slog.private = data->slog_base + ABOX_SLOG_OFFSET;
+	if (data->slog_size >= ABOX_SLOG_DATA_OFFSET) {
+		bin_attr_calliope_slog.size = data->slog_size - ABOX_SLOG_DATA_OFFSET;
+		bin_attr_calliope_slog.private = data->slog_base + ABOX_SLOG_DATA_OFFSET;
+	} else {
+		bin_attr_calliope_slog.size = data->slog_size;
+		bin_attr_calliope_slog.private = data->slog_base;
+	}
+
 	for (i = 0; i < ARRAY_SIZE(calliope_bin_attrs); i++) {
 		struct bin_attribute *battr = calliope_bin_attrs[i];
 

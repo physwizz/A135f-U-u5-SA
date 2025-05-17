@@ -42,6 +42,9 @@
 #include "usb_power_notify.h"
 #endif
 
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+#include <linux/usb_notify.h>
+#endif
 #define OTG_NO_CONNECT		0
 #define OTG_CONNECT_ONLY	1
 #define OTG_DEVICE_CONNECT	2
@@ -649,6 +652,10 @@ dwc3_otg_store_b_sess(struct device *dev,
 	if (sscanf(buf, "%d", &b_sess_vld) != 1){
 		return -EINVAL;
 	}
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+	if (is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_CLIENT))
+		return NOTIFY_OK;
+#endif
 
 	fsm->b_sess_vld = !!b_sess_vld;
 
@@ -679,6 +686,11 @@ dwc3_otg_store_id(struct device *dev,
 
 	if (sscanf(buf, "%d", &id) != 1)
 		return -EINVAL;
+
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+	if (is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_HOST))
+		return NOTIFY_OK;
+#endif
 
 	fsm->id = !!id;
 
