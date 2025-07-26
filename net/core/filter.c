@@ -5212,6 +5212,9 @@ static bool bpf_skb_is_valid_access(int off, int size, enum bpf_access_type type
 
 	switch (off) {
 	case bpf_ctx_range_till(struct __sk_buff, cb[0], cb[4]):
+
+	case bpf_ctx_range(struct __sk_buff, queue_mapping):
+
 		if (off + size > offsetofend(struct __sk_buff, cb[4]))
 			return false;
 		break;
@@ -5829,9 +5832,18 @@ static u32 bpf_convert_ctx_access(enum bpf_access_type type,
 		break;
 
 	case offsetof(struct __sk_buff, queue_mapping):
-		*insn++ = BPF_LDX_MEM(BPF_H, si->dst_reg, si->src_reg,
-				      bpf_target_off(struct sk_buff, queue_mapping, 2,
-						     target_size));
+		if (type == BPF_WRITE) {
+			*insn++ = BPF_JMP_IMM(BPF_JGE, si->src_reg, NO_QUEUE_MAPPING, 1);
+			*insn++ = BPF_STX_MEM(BPF_H, si->dst_reg, si->src_reg,
+					      bpf_target_off(struct sk_buff,
+							     queue_mapping,
+							     2, target_size));
+		} else {
+			*insn++ = BPF_LDX_MEM(BPF_H, si->dst_reg, si->src_reg,
+					      bpf_target_off(struct sk_buff,
+							     queue_mapping,
+							     2, target_size));
+		}
 		break;
 
 	case offsetof(struct __sk_buff, vlan_present):
